@@ -25,15 +25,33 @@ func (n *Node) leader() {
 	// start a thread to update the commit index
 	go n.commitCheck()
 
+    // simulate two client requests
 	args := ClientRequestArgs{
 		Command: "hello",
 	}
 	reply := ClientRequestReply{}
 	go n.ClientRequest(&args, &reply)
 
+	args2 := ClientRequestArgs{
+		Command: "world",
+	}
+	reply2 := ClientRequestReply{}
+	go n.ClientRequest(&args2, &reply2)
+
 	for {
 		time.Sleep(1500 * time.Millisecond)
+        n.mu.Lock()
+		fmt.Printf("Current Log: %v\n", n.Log)
+        n.mu.Unlock()
+
 		go n.addEntries()
+
+        // simulate an additional request each heartbeat
+        args3 := ClientRequestArgs{
+            Command: "third",
+        }
+        go n.ClientRequest(&args3, &ClientRequestReply{})
+        go n.ClientRequest(&args2, &ClientRequestReply{})
 	}
 }
 
@@ -127,13 +145,13 @@ func (n *Node) addEntries() {
 		n.mu.Lock()
 		// if last log index >= nextIndex for a follower...
 		var entries []LogEntry
-        prevLogIndex := len(n.Log)-1
-        prevLogTerm := n.Log[prevLogIndex].Term
+		prevLogIndex := len(n.Log) - 1
+		prevLogTerm := n.Log[prevLogIndex].Term
 		if len(n.Log)-1 >= n.NextIndex[peer] {
 			// call AppendEntries with log entries starting at next index
 			entries = n.Log[n.NextIndex[peer]:]
-            prevLogIndex = n.NextIndex[peer]-1
-            prevLogTerm = n.Log[prevLogIndex].Term
+			prevLogIndex = n.NextIndex[peer] - 1
+			prevLogTerm = n.Log[prevLogIndex].Term
 		}
 		go n.callAppendEntries(peer, prevLogIndex, prevLogTerm, entries, larch)
 		n.mu.Unlock()
@@ -158,13 +176,13 @@ func (n *Node) addEntries() {
 			n.CommitCond.Broadcast()
 
 			n.mu.Unlock()
-		// only failure case is inconsistent log -> decrement NextIndex and retry
+			// only failure case is inconsistent log -> decrement NextIndex and retry
 		} else {
 			n.mu.Lock()
 			n.NextIndex[reply.Peer]--
 			entries := n.Log[n.NextIndex[reply.Peer]:]
-            prevLogIndex := n.NextIndex[reply.Peer]
-            prevLogTerm := n.Log[prevLogIndex].Term
+			prevLogIndex := n.NextIndex[reply.Peer]
+			prevLogTerm := n.Log[prevLogIndex].Term
 			n.mu.Unlock()
 
 			// retry
@@ -176,14 +194,14 @@ func (n *Node) addEntries() {
 // if you're the leader you can send AppendEntries to other nodes
 func (n *Node) callAppendEntries(peer int, prevLogIndex int, prevLogTerm int, entries []LogEntry, larch chan LeaderAppendReply) {
 	n.mu.Lock()
-	fmt.Printf("calling append entries to: %v\n", peer)
-    fmt.Printf("Term: %v\n", n.CurrentTerm)
-    fmt.Printf("LeaderId: %v\n", n.Id)
-    fmt.Printf("PrevLogIndex: %v\n", prevLogIndex)
-    fmt.Printf("PrevLogTerm: %v\n", prevLogTerm)
-    fmt.Printf("Entries: %v\n", entries)
-    fmt.Printf("LeaderCommit: %v\n", n.CommitIndex)
-    fmt.Printf("\n")
+	// fmt.Printf("calling append entries to: %v\n", peer)
+	// fmt.Printf("Term: %v\n", n.CurrentTerm)
+	// fmt.Printf("LeaderId: %v\n", n.Id)
+	// fmt.Printf("PrevLogIndex: %v\n", prevLogIndex)
+	// fmt.Printf("PrevLogTerm: %v\n", prevLogTerm)
+	// fmt.Printf("Entries: %v\n", entries)
+	// fmt.Printf("LeaderCommit: %v\n", n.CommitIndex)
+	// fmt.Printf("\n")
 
 	args := AppendEntriesArgs{
 		Term:         n.CurrentTerm,

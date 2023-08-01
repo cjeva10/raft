@@ -126,6 +126,8 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 	n.VotedFor = 0
 	reply.Success = true
 	fmt.Printf("Term: %v, Received good heartbeat from %v, resetting timer\n", n.CurrentTerm, args.LeaderId)
+    fmt.Printf("Current Log: %v\n", n.Log)
+    fmt.Println()
 
 	// reset election timer
 	go n.pulseCheck()
