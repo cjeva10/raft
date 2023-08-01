@@ -5,7 +5,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/cjeva10/raft/rpc"
+	"github.com/cjeva10/raft/raft"
 )
 
 func main() {
@@ -14,7 +14,7 @@ func main() {
         log.Fatal(err)
     }
 
-	rpc.Start(port)
+	raft.Start(port)
 
 	for {
 	}

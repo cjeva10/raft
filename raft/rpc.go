@@ -1,15 +1,13 @@
-package rpc
+package raft
 
 import (
 	"fmt"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"net/rpc"
 	"strconv"
 	"sync"
-	"time"
 )
 
 type AppendEntriesArgs struct {
@@ -38,19 +36,18 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 		return nil
 	}
 
-    // log doesn't contain an entry at PrevLogIndex whose term mathces PrevLogTerm
+	// log doesn't contain an entry at PrevLogIndex whose term mathces PrevLogTerm
 	if len(n.Log)-1 < args.PrevLogIndex || n.Log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		reply.Success = false
 		return nil
 	}
 
-    n.CurrentTerm = args.Term
-    n.VotedFor = 0
+	n.CurrentTerm = args.Term
+	n.VotedFor = 0
 	reply.Success = true
 	fmt.Printf("Term: %v, Received good heartbeat from %v, resetting timer\n", n.CurrentTerm, args.LeaderId)
 
 	// reset election timer
-	n.Pulses++
 	go n.pulseCheck()
 
 	return nil
@@ -77,12 +74,7 @@ func (n *Node) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) error
 	fmt.Printf("Received vote request from %v: term = %v\n", args.CandidateId, args.Term)
 
 	if args.Term > n.CurrentTerm {
-		n.CurrentTerm = args.Term
-		n.VotedFor = 0
-		n.State = FOLLOWER
-
-		n.Pulses++
-		go n.pulseCheck()
+		n.becomeFollower(args.Term)
 	}
 
 	if (n.VotedFor == 0 || n.VotedFor == args.CandidateId) && args.Term >= n.CurrentTerm {
@@ -90,7 +82,6 @@ func (n *Node) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) error
 		n.VotedFor = args.CandidateId
 		reply.VoteGranted = true
 
-		n.Pulses++
 		go n.pulseCheck()
 	}
 
@@ -98,8 +89,8 @@ func (n *Node) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) error
 }
 
 type LogEntry struct {
-    Term int
-    Command string
+	Term    int
+	Command string
 }
 
 type Node struct {
@@ -115,6 +106,7 @@ type Node struct {
 	// volatile (leaders)
 	NextIndex  map[int]int
 	MatchIndex map[int]int
+	CommitCond sync.Cond
 
 	State NodeStates
 
@@ -149,48 +141,6 @@ func (n *Node) server(port int) {
 	go http.Serve(l, nil)
 }
 
-// wait for a random amount of time (150-300ms) and then request votes
-func (n *Node) pulseCheck() {
-	n.mu.Lock()
-	currPulses := n.Pulses
-	n.mu.Unlock()
-
-	// wait
-	delay := 2000 + rand.Intn(500)
-	time.Sleep(time.Duration(delay) * time.Millisecond)
-
-	// if we didn't receive a pulse, call an election
-	n.mu.Lock()
-	if currPulses == n.Pulses {
-		go n.callElection() // do this on another thread to release the lock
-	}
-	n.mu.Unlock()
-}
-
-// become the leader
-func (n *Node) leader() {
-	fmt.Println("Becoming the leader")
-	n.mu.Lock()
-	n.State = LEADER
-	n.Pulses++
-
-	// initialize NextIndex
-    for _, peer := range n.PeerList {
-        n.NextIndex[peer] = len(n.Log)
-        n.MatchIndex[peer] = 0
-    }
-
-	// initialize MatchIndex
-	n.mu.Unlock()
-
-	for {
-		time.Sleep(75 * time.Millisecond)
-		for _, peer := range n.PeerList {
-			go n.callAppendEntries(peer)
-		}
-	}
-}
-
 func Start(port int) *Node {
 	// init Node
 	n := Node{}
@@ -207,17 +157,22 @@ func Start(port int) *Node {
 	n.PeerList = peers
 
 	// read persistent state from storage
-    // for now assume it's a fresh boot every time
+	// for now assume it's a fresh boot every time
 	n.CurrentTerm = 0
 	n.VotedFor = 0
 	n.Log = []LogEntry{{
-        Command: "",
-        Term: 0,
-    }}
+		Command: "",
+		Term:    0,
+	}}
+
+	n.NextIndex = make(map[int]int)
+	n.MatchIndex = make(map[int]int)
 
 	// initialize volatile state
 	n.CommitIndex = 0
 	n.LastApplied = 0
+	n.mu = sync.Mutex{}
+	n.CommitCond = *sync.NewCond(&n.mu)
 
 	// start as a follower
 	n.State = FOLLOWER

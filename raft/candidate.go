@@ -1,29 +1,10 @@
-package rpc
+package raft
 
 import (
-	"fmt"
-	"net/rpc"
-	"strconv"
-	"sync"
+    "sync"
+    "fmt"
+
 )
-
-// helper function to call RPC methods on a peer
-func call(peer int, rpcname string, args interface{}, reply interface{}) bool {
-	peername := strconv.Itoa(peer)
-
-	c, err := rpc.DialHTTP("tcp", "localhost:"+peername)
-	if err != nil {
-		return false
-	}
-	defer c.Close()
-
-	err = c.Call(rpcname, args, reply)
-	if err == nil {
-		return true
-	}
-
-	return false
-}
 
 func (n *Node) callElection() {
 	votesNeeded := len(n.PeerList)/2 + 1
@@ -44,23 +25,24 @@ func (n *Node) callElection() {
 
 	n.mu.Unlock()
 
+	// use a conditional to check vote totals later
 	cond := sync.NewCond(&n.mu)
 
 	// request votes from all peers
 	for _, peer := range n.PeerList {
 		thisPeer := peer
 		go func() {
-            fmt.Printf("Requesting vote from %v\n", thisPeer)
+			fmt.Printf("Requesting vote from %v\n", thisPeer)
 			vote := n.callRequestVote(thisPeer)
 			n.mu.Lock()
 			defer n.mu.Unlock()
-            if n.State == FOLLOWER {
-                // if we converted back to a follower cancel the election
-                return
-            }
+			if n.State == FOLLOWER {
+				// if we converted back to a follower cancel the election
+				return
+			}
 
 			if vote {
-                fmt.Printf("Received vote from %v\n", thisPeer)
+				fmt.Printf("Received vote from %v\n", thisPeer)
 				votesReceived++
 			}
 			votesFinished++
@@ -71,7 +53,7 @@ func (n *Node) callElection() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	for votesReceived < votesNeeded && votesReceived <= len(n.PeerList) {
-        fmt.Printf("votes received = %v\n", votesReceived)
+		fmt.Printf("votes received = %v\n", votesReceived)
 		cond.Wait()
 	}
 	if votesReceived >= votesNeeded {
@@ -81,12 +63,12 @@ func (n *Node) callElection() {
 
 // if you're a candidate, you can call RequestVote to other nodes
 func (n *Node) callRequestVote(peer int) bool {
-    n.mu.Lock()
+	n.mu.Lock()
 	args := RequestVoteArgs{
 		Term:        n.CurrentTerm,
 		CandidateId: n.Id,
 	}
-    n.mu.Unlock()
+	n.mu.Unlock()
 
 	reply := RequestVoteReply{}
 
@@ -95,15 +77,15 @@ func (n *Node) callRequestVote(peer int) bool {
 		return false
 	}
 
-    n.mu.Lock()
-    defer n.mu.Unlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
 	// another node has a higher term, therefore go back to follower
 	if reply.Term > n.CurrentTerm {
 		n.State = FOLLOWER
 		n.Pulses++
 		n.VotedFor = 0
-        go n.pulseCheck()
+		go n.pulseCheck()
 		return false
 	}
 
@@ -116,27 +98,17 @@ func (n *Node) callRequestVote(peer int) bool {
 	return false
 }
 
-// if you're the leader you can send AppendEntries to other nodes
-func (n *Node) callAppendEntries(peer int) {
-	n.mu.Lock()
-    idx := len(n.Log) - 1 
-	args := AppendEntriesArgs{
-		Term:         n.CurrentTerm,
-		LeaderId:     n.Id,
-		PrevLogIndex: idx,
-		PrevLogTerm:  n.LogTerms[idx],
-		Entries:      []string{},
-		LeaderCommit: 0,
-	}
-	n.mu.Unlock()
-
-	reply := AppendEntriesReply{}
-
-	ok := call(peer, "Node.AppendEntries", args, &reply)
-	if ok {
-		// todo
-	} else {
-		// todo
-	}
-
+type LeaderAppendReply struct {
+	Aer  AppendEntriesReply
+	Peer int
 }
+
+func (n *Node) becomeFollower(updateTerm int) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.CurrentTerm = updateTerm
+	n.VotedFor = 0 // reset vote whenever we update our term
+	n.State = FOLLOWER
+	go n.pulseCheck() // restart election timer
+}
+
