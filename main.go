@@ -9,10 +9,10 @@ import (
 )
 
 func main() {
-    port, err := strconv.Atoi(os.Args[1])
-    if err != nil {
-        log.Fatal(err)
-    }
+	port, err := strconv.Atoi(os.Args[1])
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	raft.Start(port)
 
