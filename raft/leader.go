@@ -22,12 +22,18 @@ func (n *Node) leader() {
 
 	n.mu.Unlock()
 
-	// start a thread to check the commit index periodically
+	// start a thread to update the commit index
 	go n.commitCheck()
 
+	args := ClientRequestArgs{
+		Command: "hello",
+	}
+	reply := ClientRequestReply{}
+	go n.ClientRequest(&args, &reply)
+
 	for {
-		time.Sleep(75 * time.Millisecond)
-		n.addEntries()
+		time.Sleep(1500 * time.Millisecond)
+		go n.addEntries()
 	}
 }
 
@@ -55,7 +61,7 @@ func (n *Node) commitCheck() {
 // check whether a majority of matchIndex[i] >= N
 func (n *Node) majorityMatchIndex(N int) bool {
 	majority := len(n.PeerList)/2 + 1
-	count := 0
+	count := 1
 	for _, match := range n.MatchIndex {
 		if match >= N {
 			count++
@@ -108,6 +114,11 @@ func (n *Node) ClientRequest(args *ClientRequestArgs, reply *ClientRequestReply)
 	return nil
 }
 
+type LeaderAppendReply struct {
+	Aer  AppendEntriesReply
+	Peer int
+}
+
 // routine for a leader to commit a log entry
 func (n *Node) addEntries() {
 	// send AppendEntries to each of the peers
@@ -115,23 +126,25 @@ func (n *Node) addEntries() {
 	for _, peer := range n.PeerList {
 		n.mu.Lock()
 		// if last log index >= nextIndex for a follower...
+		var entries []LogEntry
+        prevLogIndex := len(n.Log)-1
+        prevLogTerm := n.Log[prevLogIndex].Term
 		if len(n.Log)-1 >= n.NextIndex[peer] {
 			// call AppendEntries with log entries starting at next index
-			entries := n.Log[n.NextIndex[peer]:]
-
-			n.mu.Unlock() // unlock to send rpc
-
-			go n.callAppendEntries(peer, entries, larch)
+			entries = n.Log[n.NextIndex[peer]:]
+            prevLogIndex = n.NextIndex[peer]-1
+            prevLogTerm = n.Log[prevLogIndex].Term
 		}
+		go n.callAppendEntries(peer, prevLogIndex, prevLogTerm, entries, larch)
+		n.mu.Unlock()
 	}
 
 	for reply := range larch {
 		n.mu.Lock() // lock for the term check
 		// if reply term > current term, immediately become a folower and kill function
 		if reply.Aer.Term > n.CurrentTerm {
-			n.mu.Unlock()
-
 			n.becomeFollower(reply.Aer.Term)
+			n.mu.Unlock()
 			return
 		}
 		n.mu.Unlock()
@@ -145,30 +158,40 @@ func (n *Node) addEntries() {
 			n.CommitCond.Broadcast()
 
 			n.mu.Unlock()
-			// only failure case is inconsistent log -> decrement NextIndex and retry
+		// only failure case is inconsistent log -> decrement NextIndex and retry
 		} else {
 			n.mu.Lock()
 			n.NextIndex[reply.Peer]--
 			entries := n.Log[n.NextIndex[reply.Peer]:]
+            prevLogIndex := n.NextIndex[reply.Peer]
+            prevLogTerm := n.Log[prevLogIndex].Term
 			n.mu.Unlock()
 
 			// retry
-			go n.callAppendEntries(reply.Peer, entries, larch)
+			go n.callAppendEntries(reply.Peer, prevLogIndex, prevLogTerm, entries, larch)
 		}
 	}
 }
 
 // if you're the leader you can send AppendEntries to other nodes
-func (n *Node) callAppendEntries(peer int, entries []LogEntry, larch chan LeaderAppendReply) {
+func (n *Node) callAppendEntries(peer int, prevLogIndex int, prevLogTerm int, entries []LogEntry, larch chan LeaderAppendReply) {
 	n.mu.Lock()
-	idx := len(n.Log) - 1
+	fmt.Printf("calling append entries to: %v\n", peer)
+    fmt.Printf("Term: %v\n", n.CurrentTerm)
+    fmt.Printf("LeaderId: %v\n", n.Id)
+    fmt.Printf("PrevLogIndex: %v\n", prevLogIndex)
+    fmt.Printf("PrevLogTerm: %v\n", prevLogTerm)
+    fmt.Printf("Entries: %v\n", entries)
+    fmt.Printf("LeaderCommit: %v\n", n.CommitIndex)
+    fmt.Printf("\n")
+
 	args := AppendEntriesArgs{
 		Term:         n.CurrentTerm,
 		LeaderId:     n.Id,
-		PrevLogIndex: idx,
-		PrevLogTerm:  n.Log[idx].Term,
+		PrevLogIndex: prevLogIndex,
+		PrevLogTerm:  prevLogTerm,
 		Entries:      entries,
-		LeaderCommit: 0,
+		LeaderCommit: n.CommitIndex,
 	}
 	n.mu.Unlock()
 
@@ -177,10 +200,10 @@ func (n *Node) callAppendEntries(peer int, entries []LogEntry, larch chan Leader
 	ok := call(peer, "Node.AppendEntries", args, &reply)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "Failed to receive RPC request\n")
-	}
-
-	larch <- LeaderAppendReply{
-		Aer:  reply,
-		Peer: peer,
+	} else {
+		larch <- LeaderAppendReply{
+			Aer:  reply,
+			Peer: peer,
+		}
 	}
 }

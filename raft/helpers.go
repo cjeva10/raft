@@ -25,7 +25,8 @@ func call(peer int, rpcname string, args interface{}, reply interface{}) bool {
 	return false
 }
 
-// wait for a random amount of time (150-300ms) and then request votes
+// wait for a random amount of time and then request votes
+// for debugging the min wait time is 2 seconds
 func (n *Node) pulseCheck() {
 	// kill all existing pulses (by incrementing counter) and record current total
 	n.mu.Lock()
@@ -43,4 +44,11 @@ func (n *Node) pulseCheck() {
 		go n.callElection() // do this on another thread to release the lock
 	}
 	n.mu.Unlock()
+}
+
+func (n *Node) becomeFollower(updateTerm int) {
+	n.CurrentTerm = updateTerm
+	n.VotedFor = 0 // reset vote whenever we update our term
+	n.State = FOLLOWER
+	go n.pulseCheck() // restart election timer
 }

@@ -1,9 +1,8 @@
 package raft
 
 import (
-    "sync"
-    "fmt"
-
+	"fmt"
+	"sync"
 )
 
 func (n *Node) callElection() {
@@ -82,10 +81,7 @@ func (n *Node) callRequestVote(peer int) bool {
 
 	// another node has a higher term, therefore go back to follower
 	if reply.Term > n.CurrentTerm {
-		n.State = FOLLOWER
-		n.Pulses++
-		n.VotedFor = 0
-		go n.pulseCheck()
+        n.becomeFollower(reply.Term)
 		return false
 	}
 
@@ -96,19 +92,5 @@ func (n *Node) callRequestVote(peer int) bool {
 	}
 
 	return false
-}
-
-type LeaderAppendReply struct {
-	Aer  AppendEntriesReply
-	Peer int
-}
-
-func (n *Node) becomeFollower(updateTerm int) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.CurrentTerm = updateTerm
-	n.VotedFor = 0 // reset vote whenever we update our term
-	n.State = FOLLOWER
-	go n.pulseCheck() // restart election timer
 }
 
