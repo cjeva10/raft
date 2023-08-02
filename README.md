@@ -7,6 +7,10 @@ Implementing the Raft consensus algorithm in Go.
 For now, nodes communicate over tcp on a single host. 
 
 From top-level directory, run `go run main.go [port-number]` to start the node listening on the specified port.
+Right now, 5 fixed nodes are configured in the peer list, using ports 1234-1238. So at least 3 are needed to elect a leader and field commands.
+
+To run the client, run `go run client/client.go`. 
+Send RPC requests to the cluster on stdin (eg `1 1234\n` sends the command `1` to port `1234`)
 
 ## Status
 
