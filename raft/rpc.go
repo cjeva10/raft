@@ -4,8 +4,8 @@ package raft
 
 import (
 	"fmt"
-	"sync"
 )
+
 type AppendEntriesArgs struct {
 	Term         int
 	LeaderId     int
@@ -78,15 +78,15 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 			n.CommitIndex = args.LeaderCommit
 		}
 
-        n.checkLastApplied()
+		n.checkLastApplied()
 	}
 
 	n.CurrentTerm = args.Term
 	n.VotedFor = 0
-    n.LeaderId = args.LeaderId
+	n.LeaderId = args.LeaderId
 	reply.Success = true
 	// fmt.Printf("Term: %v, Received good heartbeat from %v, resetting timer\n", n.CurrentTerm, args.LeaderId)
-    fmt.Printf("Successful heartbeat: Current Log: %v, CommitIndex: %v, CurrentLeader: %v\n", n.Log, n.CommitIndex, n.LeaderId)
+	fmt.Printf("Successful heartbeat: Current Log: %v, CommitIndex: %v, CurrentLeader: %v\n", n.Log, n.CommitIndex, n.LeaderId)
 
 	// reset election timer
 	go n.pulseCheck()
@@ -144,43 +144,7 @@ func (n *Node) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) error
 }
 
 func Start(port int) *Node {
-	// init Node
-	n := Node{}
-
-	// create peer list
-	peers := []int{1234, 1235, 1236, 1237, 1238}
-	for i, peer := range peers {
-		if peer == port {
-			copy(peers[i:], peers[i+1:])
-			peers = peers[:len(peers)-1]
-		}
-	}
-	fmt.Println(peers)
-	n.PeerList = peers
-
-	// read persistent state from storage
-	// for now assume it's a fresh boot every time
-	n.CurrentTerm = 0
-	n.VotedFor = 0
-	n.Log = []LogEntry{{
-		Command: "",
-		Term:    0,
-	}}
-
-	n.NextIndex = make(map[int]int)
-	n.MatchIndex = make(map[int]int)
-
-	// initialize volatile state
-	n.CommitIndex = 0
-	n.LastApplied = 0
-	n.mu = sync.Mutex{}
-	n.CommitCond = *sync.NewCond(&n.mu)
-
-	// start as a follower
-	n.State = FOLLOWER
-
-	// the id should be the port we're listening on
-	n.Id = port
+	n := setupNode(port)
 
 	// start server
 	n.server(port)
@@ -188,5 +152,5 @@ func Start(port int) *Node {
 	// start the heartbeat
 	go n.pulseCheck()
 
-	return &n
+	return n
 }
