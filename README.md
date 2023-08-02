@@ -11,11 +11,12 @@ From top-level directory, run `go run main.go [port-number]` to start the node l
 ## Status
 
  - Implemented the basic leader election, tested with 5 nodes
+ - Implemented appending logs
+ - First draft ApepndEntries and RequestVote RPCs done, working in basic cases
+
  - Next Steps: 
- - Appending logs (create a simple service)
- - more detailed RPC handling for AppendEntries, 
- - Unit testing
- - store persistent state on disk.
+     - Unit testing
+     - store persistent state on disk.
 
 ## testing
 
