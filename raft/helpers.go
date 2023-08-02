@@ -1,7 +1,11 @@
 package raft
 
 import (
+	"fmt"
+	"log"
 	"math/rand"
+	"net"
+	"net/http"
 	"net/rpc"
 	"strconv"
 	"time"
@@ -54,4 +58,33 @@ func (n *Node) becomeFollower(updateTerm int) {
 	n.VotedFor = 0 // reset vote whenever we update our term
 	n.State = FOLLOWER
 	go n.pulseCheck() // restart election timer
+}
+
+func (n *Node) checkLastApplied() {
+	if n.CommitIndex > n.LastApplied {
+		n.LastApplied++
+		go n.applyToStateMachine(n.Log[n.LastApplied])
+	}
+}
+
+func (n *Node) server(port int) {
+	rpc.Register(n)
+	rpc.HandleHTTP()
+
+	portname := strconv.Itoa(port)
+
+	l, err := net.Listen("tcp", ":"+portname)
+	if err != nil {
+		log.Fatal("listen error:", err)
+	}
+
+	go http.Serve(l, nil)
+}
+
+func (n *Node) applyToStateMachine(entry LogEntry) {
+	fmt.Printf("Applying Log to Machine: %v\n", entry)
+
+	// todo
+	// probably we want to have a channel or queue so that the state machine
+	// requests are always processed correctly in order
 }

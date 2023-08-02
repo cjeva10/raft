@@ -1,54 +1,11 @@
 package raft
 
+// implementation of RPC handles and RPC initalization
+
 import (
 	"fmt"
-	"log"
-	"net"
-	"net/http"
-	"net/rpc"
-	"strconv"
 	"sync"
 )
-
-type Node struct {
-	// persistent
-	CurrentTerm int
-	VotedFor    int
-	Log         []LogEntry
-
-	// volatile (all servers)
-	CommitIndex int
-	LastApplied int
-
-	// volatile (leaders)
-	NextIndex  map[int]int
-	MatchIndex map[int]int
-	CommitCond sync.Cond
-
-	State NodeStates
-
-	// misc
-	Pulses int
-	mu     sync.Mutex
-
-	PeerList []int
-
-	Id int // id = port
-}
-
-type LogEntry struct {
-	Term    int
-	Command string
-}
-
-type NodeStates int
-
-const (
-	FOLLOWER  = 0
-	CANDIDATE = 1
-	LEADER    = 2
-)
-
 type AppendEntriesArgs struct {
 	Term         int
 	LeaderId     int
@@ -121,28 +78,20 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 			n.CommitIndex = args.LeaderCommit
 		}
 
-		if n.CommitIndex > n.LastApplied {
-			n.LastApplied++
-			n.ApplyToStateMachine(n.Log[n.LastApplied])
-		}
+        n.checkLastApplied()
 	}
 
 	n.CurrentTerm = args.Term
 	n.VotedFor = 0
+    n.LeaderId = args.LeaderId
 	reply.Success = true
 	// fmt.Printf("Term: %v, Received good heartbeat from %v, resetting timer\n", n.CurrentTerm, args.LeaderId)
-	fmt.Printf("Current Log: %v, CommitIndex: %v\n", n.Log, n.CommitIndex)
+    fmt.Printf("Successful heartbeat: Current Log: %v, CommitIndex: %v, CurrentLeader: %v\n", n.Log, n.CommitIndex, n.LeaderId)
 
 	// reset election timer
 	go n.pulseCheck()
 
 	return nil
-}
-
-func (n *Node) ApplyToStateMachine(entry LogEntry) {
-	fmt.Printf("Applying Log to Machine: %v\n", entry)
-
-	// tooo
 }
 
 type RequestVoteArgs struct {
@@ -188,24 +137,10 @@ func (n *Node) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) error
 				reply.VoteGranted = true
 			}
 		}
-        go n.pulseCheck()
+		go n.pulseCheck()
 	}
 
 	return nil
-}
-
-func (n *Node) server(port int) {
-	rpc.Register(n)
-	rpc.HandleHTTP()
-
-	portname := strconv.Itoa(port)
-
-	l, err := net.Listen("tcp", ":"+portname)
-	if err != nil {
-		log.Fatal("listen error:", err)
-	}
-
-	go http.Serve(l, nil)
 }
 
 func Start(port int) *Node {

@@ -26,32 +26,12 @@ func (n *Node) leader() {
 	// start a thread to update the commit index
 	go n.commitCheck()
 
-	// simulate two client requests
-	// count := 0
-	// args := ClientRequestArgs{
-	// 	Command: strconv.Itoa(count),
-	// }
-	// reply := ClientRequestReply{}
-	// go n.ClientRequest(&args, &reply)
-	//
-	// count++
-	// args2 := ClientRequestArgs{
-	// 	Command: strconv.Itoa(count),
-	// }
-	// reply2 := ClientRequestReply{}
-	// go n.ClientRequest(&args2, &reply2)
-
 	for {
         // the leader's pulse is quicker than the follower's
 		time.Sleep(PULSETIME * 0.75 * time.Millisecond)
 
 		go n.addEntries()
 
-		// simulate two requests every heartbeat 
-		// count++
-		// go n.ClientRequest(&ClientRequestArgs{Command: strconv.Itoa(count)}, &ClientRequestReply{})
-		// count++
-		// go n.ClientRequest(&ClientRequestArgs{Command: strconv.Itoa(count)}, &ClientRequestReply{})
 		n.mu.Lock()
 		fmt.Printf("Current Log: %v\n", n.Log)
 		n.mu.Unlock()
@@ -68,6 +48,7 @@ func (n *Node) commitCheck() {
 		n.CommitCond.Wait()
 	}
 	n.CommitIndex = N
+    n.checkLastApplied()
     fmt.Printf("New CommitIndex = %v\n", N)
 	n.CommitCond.Broadcast()
 
