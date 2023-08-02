@@ -24,6 +24,9 @@ Send RPC requests to the cluster on stdin (eg `1 1234\n` sends the command `1` t
 
 ## testing
 
+Need to set up basic infrastructure to create specific custom specific scenarios for testing.
+Not sure how to do that yet.
+
 Some scenarios that need to be tested
 
  - Elections:
