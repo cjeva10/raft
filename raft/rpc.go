@@ -143,11 +143,13 @@ func (n *Node) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) error
 	return nil
 }
 
-func Start(port int) *Node {
-	n := setupNode(port)
-
+func (n *Node) Start(testing bool) *Node {
 	// start server
-	n.server(port)
+	if testing {
+		n.Testing = true
+	} else {
+		n.server(n.Id)
+	}
 
 	// start the heartbeat
 	go n.pulseCheck()

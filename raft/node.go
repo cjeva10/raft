@@ -36,6 +36,10 @@ type Node struct {
 
 	// Id of current leader
 	LeaderId int
+
+    // for testing
+    Testing bool
+    Peers map[int]*Node
 }
 
 type LogEntry struct {

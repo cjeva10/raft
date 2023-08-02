@@ -28,7 +28,7 @@ func (n *Node) leader() {
 
 	for {
         // the leader's pulse is quicker than the follower's
-		time.Sleep(PULSETIME * 0.75 * time.Millisecond)
+		time.Sleep(PULSETIME * 3/4 * time.Millisecond)
 
 		go n.addEntries()
 
@@ -207,7 +207,7 @@ func (n *Node) addEntries() {
 func (n *Node) callAppendEntries(peer int, args AppendEntriesArgs, larch chan LeaderAppendReply) {
 	reply := AppendEntriesReply{}
 
-	ok := call(peer, "Node.AppendEntries", args, &reply)
+	ok := n.call(peer, "Node.AppendEntries", &args, &reply)
 	if ok {
 		larch <- LeaderAppendReply{
 			Aer:  reply,

@@ -7,32 +7,74 @@ import (
 	"net"
 	"net/http"
 	"net/rpc"
+	"os"
 	"strconv"
-    "sync"
+	"sync"
 	"time"
 )
 
 // min heartbeat time in milliseconds
-const PULSETIME = 2000
+const PULSETIME = 50 
 
 // helper function to call RPC methods on a peer
-func call(peer int, rpcname string, args interface{}, reply interface{}) bool {
-	peername := strconv.Itoa(peer)
+func (n *Node) call(peer int, rpcname string, args interface{}, reply interface{}) bool {
+	if !n.Testing {
+		peername := strconv.Itoa(peer)
 
-	c, err := rpc.DialHTTP("tcp", "localhost:"+peername)
-	if err != nil {
+		c, err := rpc.DialHTTP("tcp", "localhost:"+peername)
+		if err != nil {
+			return false
+		}
+		defer c.Close()
+
+		err = c.Call(rpcname, args, reply)
+		if err == nil {
+			return true
+		}
+
 		return false
-	}
-	defer c.Close()
-
-	err = c.Call(rpcname, args, reply)
-	if err == nil {
-		return true
-	}
-
-	return false
+	} else {
+        return n.MockCall(peer, rpcname, args, reply)
+    }
 }
 
+// make a mock call to a test peer if we are testing
+func (n *Node) MockCall(peer int, rpcname string, args interface{}, reply interface{}) bool {
+    if !n.Testing {
+        log.Fatalf("Can only use mockCall when in testing\n")
+    }
+
+	peerNode := n.Peers[peer]
+    if peerNode == nil {
+        return false
+    }
+
+	switch rpcname {
+	case "Node.RequestVote":
+		err := peerNode.RequestVote(args.(*RequestVoteArgs), reply.(*RequestVoteReply))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Bad reply to RequestVote, err: %v\n", err)
+			return false
+		}
+	case "Node.AppendEntries":
+		err := peerNode.AppendEntries(args.(*AppendEntriesArgs), reply.(*AppendEntriesReply))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Bad reply to AppendEntries, err: %v\n", err)
+			return false
+		}
+	case "Node.ClientRequest":
+		err := peerNode.ClientRequest(args.(*ClientRequestArgs), reply.(*ClientRequestReply))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Bad reply to ClientRequest, err: %v\n", err)
+			return false
+		}
+	default:
+		log.Fatalf("Unknown rpc method: %v", rpcname)
+		return false
+	}
+
+	return true
+}
 // wait for a random amount of time and then request votes
 // for debugging the min wait time is 2 seconds
 func (n *Node) pulseCheck() {
@@ -90,7 +132,7 @@ func (n *Node) applyToStateMachine(entry LogEntry) {
 	// requests are always processed correctly in order
 }
 
-func setupNode(port int) *Node {
+func SetupNode(port int) *Node {
 	n := Node{}
 
 	// create peer list
@@ -127,6 +169,9 @@ func setupNode(port int) *Node {
 
 	// the id should be the port we're listening on
 	n.Id = port
+
+    // for testing
+    n.Peers = make(map[int]*Node)
 
 	return &n
 }

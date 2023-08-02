@@ -71,7 +71,7 @@ func (n *Node) callRequestVote(peer int) bool {
 
 	reply := RequestVoteReply{}
 
-	ok := call(peer, "Node.RequestVote", &args, &reply)
+	ok := n.call(peer, "Node.RequestVote", &args, &reply)
 	if !ok {
 		return false
 	}
