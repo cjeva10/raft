@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// min heartbeat time in milliseconds
+const PULSETIME = 2000
+
 // helper function to call RPC methods on a peer
 func call(peer int, rpcname string, args interface{}, reply interface{}) bool {
 	peername := strconv.Itoa(peer)
@@ -35,7 +38,7 @@ func (n *Node) pulseCheck() {
 	n.mu.Unlock()
 
 	// wait
-	delay := 2000 + rand.Intn(500)
+	delay := PULSETIME + rand.Intn(PULSETIME/4)
 	time.Sleep(time.Duration(delay) * time.Millisecond)
 
 	// if we didn't receive a pulse, call an election

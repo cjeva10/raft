@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	// "strconv"
 	"time"
 )
 
@@ -25,33 +26,35 @@ func (n *Node) leader() {
 	// start a thread to update the commit index
 	go n.commitCheck()
 
-    // simulate two client requests
-	args := ClientRequestArgs{
-		Command: "hello",
-	}
-	reply := ClientRequestReply{}
-	go n.ClientRequest(&args, &reply)
-
-	args2 := ClientRequestArgs{
-		Command: "world",
-	}
-	reply2 := ClientRequestReply{}
-	go n.ClientRequest(&args2, &reply2)
+	// simulate two client requests
+	// count := 0
+	// args := ClientRequestArgs{
+	// 	Command: strconv.Itoa(count),
+	// }
+	// reply := ClientRequestReply{}
+	// go n.ClientRequest(&args, &reply)
+	//
+	// count++
+	// args2 := ClientRequestArgs{
+	// 	Command: strconv.Itoa(count),
+	// }
+	// reply2 := ClientRequestReply{}
+	// go n.ClientRequest(&args2, &reply2)
 
 	for {
-		time.Sleep(1500 * time.Millisecond)
-        n.mu.Lock()
-		fmt.Printf("Current Log: %v\n", n.Log)
-        n.mu.Unlock()
+        // the leader's pulse is quicker than the follower's
+		time.Sleep(PULSETIME * 0.75 * time.Millisecond)
 
 		go n.addEntries()
 
-        // simulate an additional request each heartbeat
-        args3 := ClientRequestArgs{
-            Command: "third",
-        }
-        go n.ClientRequest(&args3, &ClientRequestReply{})
-        go n.ClientRequest(&args2, &ClientRequestReply{})
+		// simulate two requests every heartbeat 
+		// count++
+		// go n.ClientRequest(&ClientRequestArgs{Command: strconv.Itoa(count)}, &ClientRequestReply{})
+		// count++
+		// go n.ClientRequest(&ClientRequestArgs{Command: strconv.Itoa(count)}, &ClientRequestReply{})
+		n.mu.Lock()
+		fmt.Printf("Current Log: %v\n", n.Log)
+		n.mu.Unlock()
 	}
 }
 
@@ -65,6 +68,7 @@ func (n *Node) commitCheck() {
 		n.CommitCond.Wait()
 	}
 	n.CommitIndex = N
+    fmt.Printf("New CommitIndex = %v\n", N)
 	n.CommitCond.Broadcast()
 
 	// calling this function recursively ensures that CommitIndex increases monotonically,
@@ -140,85 +144,90 @@ type LeaderAppendReply struct {
 // routine for a leader to commit a log entry
 func (n *Node) addEntries() {
 	// send AppendEntries to each of the peers
-	larch := make(chan LeaderAppendReply)
+	allArgs := []AppendEntriesArgs{}
+	n.mu.Lock()
+	lastIdx := len(n.Log) - 1
 	for _, peer := range n.PeerList {
-		n.mu.Lock()
 		// if last log index >= nextIndex for a follower...
 		var entries []LogEntry
-		prevLogIndex := len(n.Log) - 1
+		prevLogIndex := lastIdx
 		prevLogTerm := n.Log[prevLogIndex].Term
-		if len(n.Log)-1 >= n.NextIndex[peer] {
+
+		if lastIdx >= n.NextIndex[peer] {
 			// call AppendEntries with log entries starting at next index
 			entries = n.Log[n.NextIndex[peer]:]
 			prevLogIndex = n.NextIndex[peer] - 1
 			prevLogTerm = n.Log[prevLogIndex].Term
 		}
-		go n.callAppendEntries(peer, prevLogIndex, prevLogTerm, entries, larch)
-		n.mu.Unlock()
+
+		args := AppendEntriesArgs{
+			Term:         n.CurrentTerm,
+			LeaderId:     n.Id,
+			PrevLogIndex: prevLogIndex,
+			PrevLogTerm:  prevLogTerm,
+			Entries:      entries,
+			LeaderCommit: n.CommitIndex,
+		}
+
+		allArgs = append(allArgs, args)
+	}
+	n.mu.Unlock()
+
+	larch := make(chan LeaderAppendReply)
+	for i, peer := range n.PeerList {
+		go n.callAppendEntries(peer, allArgs[i], larch)
 	}
 
 	for reply := range larch {
-		n.mu.Lock() // lock for the term check
+		n.mu.Lock()
+
 		// if reply term > current term, immediately become a folower and kill function
 		if reply.Aer.Term > n.CurrentTerm {
 			n.becomeFollower(reply.Aer.Term)
 			n.mu.Unlock()
 			return
 		}
-		n.mu.Unlock()
 
 		// successful reply, update NextIndex and MatchIndex for this peer
 		if reply.Aer.Success {
-			n.mu.Lock()
-
-			n.NextIndex[reply.Peer] = len(n.Log)
-			n.MatchIndex[reply.Peer] = len(n.Log) - 1
+			n.NextIndex[reply.Peer] = lastIdx + 1
+			n.MatchIndex[reply.Peer] = lastIdx
 			n.CommitCond.Broadcast()
+			if len(n.Log)-1 > lastIdx {
+				fmt.Fprintf(os.Stderr, "Log length increased between locks! new %v vs old %v\n", len(n.Log)-1, lastIdx)
+			}
 
 			n.mu.Unlock()
-			// only failure case is inconsistent log -> decrement NextIndex and retry
 		} else {
-			n.mu.Lock()
+			// only failure case is inconsistent log -> decrement NextIndex and retry
+
 			n.NextIndex[reply.Peer]--
 			entries := n.Log[n.NextIndex[reply.Peer]:]
-			prevLogIndex := n.NextIndex[reply.Peer]
+			prevLogIndex := n.NextIndex[reply.Peer] - 1
 			prevLogTerm := n.Log[prevLogIndex].Term
-			n.mu.Unlock()
+
+			args := AppendEntriesArgs{
+				Term:         n.CurrentTerm,
+				LeaderId:     n.Id,
+				PrevLogIndex: prevLogIndex,
+				PrevLogTerm:  prevLogTerm,
+				Entries:      entries,
+				LeaderCommit: n.CommitIndex,
+			}
 
 			// retry
-			go n.callAppendEntries(reply.Peer, prevLogIndex, prevLogTerm, entries, larch)
+			n.mu.Unlock()
+			go n.callAppendEntries(reply.Peer, args, larch)
 		}
 	}
 }
 
 // if you're the leader you can send AppendEntries to other nodes
-func (n *Node) callAppendEntries(peer int, prevLogIndex int, prevLogTerm int, entries []LogEntry, larch chan LeaderAppendReply) {
-	n.mu.Lock()
-	// fmt.Printf("calling append entries to: %v\n", peer)
-	// fmt.Printf("Term: %v\n", n.CurrentTerm)
-	// fmt.Printf("LeaderId: %v\n", n.Id)
-	// fmt.Printf("PrevLogIndex: %v\n", prevLogIndex)
-	// fmt.Printf("PrevLogTerm: %v\n", prevLogTerm)
-	// fmt.Printf("Entries: %v\n", entries)
-	// fmt.Printf("LeaderCommit: %v\n", n.CommitIndex)
-	// fmt.Printf("\n")
-
-	args := AppendEntriesArgs{
-		Term:         n.CurrentTerm,
-		LeaderId:     n.Id,
-		PrevLogIndex: prevLogIndex,
-		PrevLogTerm:  prevLogTerm,
-		Entries:      entries,
-		LeaderCommit: n.CommitIndex,
-	}
-	n.mu.Unlock()
-
+func (n *Node) callAppendEntries(peer int, args AppendEntriesArgs, larch chan LeaderAppendReply) {
 	reply := AppendEntriesReply{}
 
 	ok := call(peer, "Node.AppendEntries", args, &reply)
-	if !ok {
-		fmt.Fprintf(os.Stderr, "Failed to receive RPC request\n")
-	} else {
+	if ok {
 		larch <- LeaderAppendReply{
 			Aer:  reply,
 			Peer: peer,
