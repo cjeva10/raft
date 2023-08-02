@@ -120,18 +120,29 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 		} else {
 			n.CommitIndex = args.LeaderCommit
 		}
+
+		if n.CommitIndex > n.LastApplied {
+			n.LastApplied++
+			n.ApplyToStateMachine(n.Log[n.LastApplied])
+		}
 	}
 
 	n.CurrentTerm = args.Term
 	n.VotedFor = 0
 	reply.Success = true
 	// fmt.Printf("Term: %v, Received good heartbeat from %v, resetting timer\n", n.CurrentTerm, args.LeaderId)
-    fmt.Printf("Current Log: %v, CommitIndex: %v\n", n.Log, n.CommitIndex)
+	fmt.Printf("Current Log: %v, CommitIndex: %v\n", n.Log, n.CommitIndex)
 
 	// reset election timer
 	go n.pulseCheck()
 
 	return nil
+}
+
+func (n *Node) ApplyToStateMachine(entry LogEntry) {
+	fmt.Printf("Applying Log to Machine: %v\n", entry)
+
+	// tooo
 }
 
 type RequestVoteArgs struct {
@@ -164,11 +175,20 @@ func (n *Node) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) error
 	}
 
 	if n.VotedFor == 0 || n.VotedFor == args.CandidateId {
-		fmt.Printf("granting vote to %v\n", args.CandidateId)
-		n.VotedFor = args.CandidateId
-		reply.VoteGranted = true
-
-		go n.pulseCheck()
+		ourLastIndex := len(n.Log) - 1
+		ourLastTerm := n.Log[ourLastIndex].Term
+		if args.LastLogTerm > ourLastTerm {
+			fmt.Printf("granting vote to %v\n", args.CandidateId)
+			n.VotedFor = args.CandidateId
+			reply.VoteGranted = true
+		} else if args.LastLogTerm == ourLastTerm {
+			if args.LastLogIndex >= ourLastIndex {
+				fmt.Printf("granting vote to %v\n", args.CandidateId)
+				n.VotedFor = args.CandidateId
+				reply.VoteGranted = true
+			}
+		}
+        go n.pulseCheck()
 	}
 
 	return nil
