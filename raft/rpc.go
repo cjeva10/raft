@@ -44,9 +44,9 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 
 	// 2. log doesn't contain an entry at PrevLogIndex whose term matches PrevLogTerm
 	if len(n.Log)-1 < args.PrevLogIndex {
-		fmt.Printf("%v: AppendEntries from %v: inconsistent log: ourIndex %v, args.Index %v\n",
+		fmt.Printf("%v: AppendEntries from %v: inconsistent log: ourIndex %v, args.PrevLogIndex %v\n",
 			n.Id,
-			n.LeaderId,
+			args.LeaderId,
 			len(n.Log)-1,
 			args.PrevLogIndex,
 		)
@@ -58,7 +58,7 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 	if n.Log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		fmt.Printf("%v: AppendEntries from %v: inconsistent log: ourPrevTerm %v, args.PrevLogTerm %v\n",
 			n.Id,
-			n.LeaderId,
+			args.LeaderId,
 			n.Log[args.PrevLogIndex].Term,
 			args.PrevLogTerm,
 		)
