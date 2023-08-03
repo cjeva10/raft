@@ -24,7 +24,7 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	fmt.Printf("%v: AppendEntries: received from %v", n.Id-1230, args.LeaderId)
+	fmt.Printf("%v: AppendEntries: received from %v\n", n.Id, args.LeaderId)
 
 	// our Term is out of date
 	if args.Term > n.CurrentTerm {
@@ -37,7 +37,7 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 
 	// 1. if the sender's term is less than our term, automatically reject this request
 	if args.Term < n.CurrentTerm {
-		fmt.Printf("%v: AppendEntries: leader term less than ours: got %v, have %v\n", n.Id-1230, args.Term, n.CurrentTerm)
+		fmt.Printf("%v: AppendEntries: leader term less than ours: got %v, have %v\n", n.Id, args.Term, n.CurrentTerm)
 		reply.Success = false
 		return nil
 	}
@@ -45,7 +45,7 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 	// 2. log doesn't contain an entry at PrevLogIndex whose term matches PrevLogTerm
 	if len(n.Log)-1 < args.PrevLogIndex {
 		fmt.Printf("%v: AppendEntries from %v: inconsistent log: ourIndex %v, args.Index %v\n",
-			n.Id-1230,
+			n.Id,
 			n.LeaderId,
 			len(n.Log)-1,
 			args.PrevLogIndex,
@@ -57,7 +57,7 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 
 	if n.Log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		fmt.Printf("%v: AppendEntries from %v: inconsistent log: ourPrevTerm %v, args.PrevLogTerm %v\n",
-			n.Id-1230,
+			n.Id,
 			n.LeaderId,
 			n.Log[args.PrevLogIndex].Term,
 			args.PrevLogTerm,
@@ -84,10 +84,10 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 
 	// 4. append any new entries not in the log
 	idx = args.PrevLogIndex + 1
-    for i := 0; i < len(args.Entries); i++ {
-		if idx + i > len(n.Log)-1 {
+	for i := 0; i < len(args.Entries); i++ {
+		if idx+i > len(n.Log)-1 {
 			n.Log = append(n.Log, args.Entries[i:]...)
-            break
+			break
 		}
 	}
 
@@ -107,7 +107,7 @@ func (n *Node) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)
 	n.VotedFor = args.LeaderId
 	n.LeaderId = args.LeaderId
 	reply.Success = true
-	fmt.Printf("%v: AppendEntries Successful: Current Log: %v, CommitIndex: %v, CurrentLeader: %v\n", n.Id-1230, n.Log, n.CommitIndex, n.LeaderId)
+	fmt.Printf("%v: AppendEntries Successful: Current Log: %v, CommitIndex: %v, CurrentLeader: %v\n", n.Id, n.Log, n.CommitIndex, n.LeaderId)
 
 	// reset election timer
 	go n.resetTimer()
@@ -146,7 +146,7 @@ func (n *Node) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) error
 
 	// sender has outdated term
 	if args.Term < n.CurrentTerm {
-		fmt.Printf("%v: Rejected vote, outdated term: got %v, have %v\n", n.Id-1230, args.Term, n.CurrentTerm)
+		fmt.Printf("%v: Rejected vote, outdated term: got %v, have %v\n", n.Id, args.Term, n.CurrentTerm)
 		reply.VoteGranted = false
 		return nil
 	}
@@ -157,28 +157,27 @@ func (n *Node) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) error
 		ourLastTerm := n.Log[ourLastIndex].Term
 
 		if args.LastLogTerm > ourLastTerm {
-
 			fmt.Printf("%v: granting vote to %v\n", n.Id, args.CandidateId)
 			n.VotedFor = args.CandidateId
 			reply.VoteGranted = true
 			go n.resetTimer()
 
 		} else if args.LastLogTerm == ourLastTerm {
-
 			if args.LastLogIndex >= ourLastIndex {
-
 				fmt.Printf("%v: granting vote to %v\n", n.Id, args.CandidateId)
 				n.VotedFor = args.CandidateId
 				reply.VoteGranted = true
 				go n.resetTimer()
+
+			} else {
+				fmt.Printf("%v: Rejected vote, Log outdated: got Term: %v, Index: %v, have Term: %v, Index: %v\n", n.Id, args.LastLogTerm, args.LastLogIndex, ourLastTerm, ourLastIndex)
 			}
+		} else {
+			fmt.Printf("%v: Rejected vote, Log outdated: got Term: %v, Index: %v, have Term: %v, Index: %v\n", n.Id, args.LastLogTerm, args.LastLogIndex, ourLastTerm, ourLastIndex)
 		}
 	} else {
-		ourLastIndex := len(n.Log) - 1
-		ourLastTerm := n.Log[ourLastIndex].Term
-
 		reply.VoteGranted = false
-		fmt.Printf("%v: Rejected vote, Log outdated: got Term: %v, Index: %v, have Term: %v, Index: %v\n", n.Id-1230, args.LastLogTerm, args.LastLogIndex, ourLastTerm, ourLastIndex)
+		fmt.Printf("%v: Rejected vote from %v, already voted this term\n", n.Id, args.CandidateId)
 	}
 
 	return nil
@@ -189,7 +188,7 @@ func (n *Node) Start(testing bool) *Node {
 	if testing {
 		n.Testing = true
 	} else {
-		n.server(n.Id)
+		n.server(n.Id+1230)
 	}
 
 	// start the heartbeat

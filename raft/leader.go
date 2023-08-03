@@ -31,9 +31,9 @@ func (n *Node) leader() {
 
 	for !n.Killed {
 		// the leader's pulse is quicker than the follower's
-		time.Sleep(PULSETIME / 2  * time.Millisecond)
+		time.Sleep(PULSETIME / 2 * time.Millisecond)
 
-        fmt.Printf("%v: sending heartbeats\n", n.Id)
+		fmt.Printf("%v: sending heartbeats\n", n.Id)
 		go n.addEntries()
 
 		fmt.Printf("%v: Current Log: %v\n", n.Id, n.Log)
@@ -130,22 +130,24 @@ type LeaderAppendReply struct {
 func (n *Node) addEntries() {
 	// send AppendEntries to each of the peers
 	allArgs := []AppendEntriesArgs{}
-    if n.Killed {
-        return
-    }
+	if n.Killed {
+		return
+	}
 
 	n.mu.Lock()
-    // make sure that we are still the leader
-    if n.State != LEADER {
-        return
-    }
+	// make sure that we are still the leader
+	if n.State != LEADER {
+		return
+	}
+
 	lastIdx := len(n.Log) - 1
+	thisTerm := n.CurrentTerm
 	for _, peer := range n.PeerList {
-		// if last log index >= nextIndex for a follower...
 		var entries []LogEntry
 		prevLogIndex := lastIdx
 		prevLogTerm := n.Log[prevLogIndex].Term
 
+		// if last log index >= nextIndex for a follower...
 		if lastIdx >= n.NextIndex[peer] {
 			// call AppendEntries with log entries starting at next index
 			entries = n.Log[n.NextIndex[peer]:]
@@ -154,7 +156,7 @@ func (n *Node) addEntries() {
 		}
 
 		args := AppendEntriesArgs{
-			Term:         n.CurrentTerm,
+			Term:         thisTerm,
 			LeaderId:     n.Id,
 			PrevLogIndex: prevLogIndex,
 			PrevLogTerm:  prevLogTerm,
@@ -166,18 +168,25 @@ func (n *Node) addEntries() {
 	}
 	n.mu.Unlock()
 
-	larch := make(chan LeaderAppendReply)
+	larch := make(chan LeaderAppendReply, len(n.PeerList))
 	for i, peer := range n.PeerList {
-        fmt.Printf("%v: Calling AppendEntries to %v\n", n.Id, peer)
-		go n.callAppendEntries(peer, allArgs[i], larch)
+		fmt.Printf("%v: Calling AppendEntries to %v\n", n.Id, peer)
+		n.mu.Lock()
+		if n.State == LEADER {
+			n.mu.Unlock()
+			go n.callAppendEntries(peer, allArgs[i], larch)
+		} else {
+			n.mu.Unlock()
+			return
+		}
 	}
 
 	for reply := range larch {
 		n.mu.Lock()
-        fmt.Printf("%v: AppendEntriesReply: Id %v, Term %v, Success %v\n", n.Id, reply.Peer, reply.Aer.Term, reply.Aer.Success)
+		fmt.Printf("%v Term %v: AppendEntriesReply: Id %v, Term %v, Success %v\n", n.Id, n.CurrentTerm, reply.Peer, reply.Aer.Term, reply.Aer.Success)
 
 		// if reply term > current term, immediately become a folower and kill function
-		if reply.Aer.Term > n.CurrentTerm {
+		if reply.Aer.Term > thisTerm {
 			n.becomeFollower(reply.Aer.Term)
 			n.mu.Unlock()
 			return
@@ -211,7 +220,7 @@ func (n *Node) addEntries() {
 
 			// retry
 			n.mu.Unlock()
-            fmt.Printf("%v: Bad reply, resending to %v\n", n.Id, reply.Peer)
+			fmt.Printf("%v: Bad reply, resending to %v\n", n.Id, reply.Peer)
 			go n.callAppendEntries(reply.Peer, args, larch)
 		}
 	}

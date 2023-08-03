@@ -16,6 +16,7 @@ func (n *Node) callElection() {
 	n.VotedFor = n.Id
 	n.State = CANDIDATE
 	n.LeaderId = 0
+	thisTerm := n.CurrentTerm
 
 	// start new election timer
 	go n.resetTimer()
@@ -30,23 +31,31 @@ func (n *Node) callElection() {
 	// request votes from all peers
 	for _, peer := range n.PeerList {
 		thisPeer := peer
-		go func() {
-			n.mu.Lock()
-			if n.State != CANDIDATE {
-				n.mu.Unlock()
-				return
-			}
+
+		// if we aren't the candidate return immediately
+		n.mu.Lock()
+		if n.State != CANDIDATE {
 			n.mu.Unlock()
+			return
+		}
+		n.mu.Unlock()
+
+		go func() {
 
 			fmt.Printf("%v: Requesting vote from %v\n", n.Id, thisPeer)
-			vote := n.callRequestVote(thisPeer)
+			vote, stop := n.callRequestVote(thisPeer, thisTerm)
+			if stop {
+				return
+			}
 
 			mu.Lock()
 			defer mu.Unlock()
+
 			if vote {
 				votesReceived++
 				fmt.Printf("%v: Vote from %v, votesReceived: %v\n", n.Id, thisPeer, votesReceived)
 			}
+
 			votesFinished++
 			cond.Broadcast()
 		}()
@@ -57,21 +66,15 @@ func (n *Node) callElection() {
 	for votesReceived < votesNeeded && votesReceived <= len(n.PeerList) {
 		cond.Wait()
 	}
-	if votesReceived >= votesNeeded {
-		if n.State == CANDIDATE {
-			go n.leader()
-		}
+	if votesReceived >= votesNeeded && n.State == CANDIDATE {
+		go n.leader()
 	}
 }
 
 // if you're a candidate, you can call RequestVote to other nodes
-func (n *Node) callRequestVote(peer int) bool {
-	n.mu.Lock()
-	argsTerm := n.CurrentTerm
-	n.mu.Unlock()
-
+func (n *Node) callRequestVote(peer int, term int) (bool, bool) {
 	args := RequestVoteArgs{
-		Term:        argsTerm,
+		Term:        term,
 		CandidateId: n.Id,
 	}
 
@@ -79,26 +82,32 @@ func (n *Node) callRequestVote(peer int) bool {
 
 	ok := n.call(peer, "Node.RequestVote", &args, &reply)
 	if !ok {
-		return false
+		return false, false
 	}
 
 	// another node has a higher term, therefore go back to follower
-	if reply.Term > argsTerm {
+	if reply.Term > term {
 		n.mu.Lock()
-		n.becomeFollower(reply.Term)
-		n.mu.Unlock()
-		return false
+		defer n.mu.Unlock()
+
+		n.CurrentTerm = reply.Term
+		n.VotedFor = 0
+		n.State = FOLLOWER
+		go n.resetTimer()
+
+		fmt.Printf("%v: Node %v has higher Term, end election\n", n.Id, peer)
+		return false, true
 	}
 
 	// stale reply
-	if reply.Term < argsTerm {
-		return false
+	if reply.Term < term {
+		return false, false
 	}
 
 	// we received a vote
 	if reply.VoteGranted {
-		return true
+		return true, false
 	}
 
-	return false
+	return false, false
 }

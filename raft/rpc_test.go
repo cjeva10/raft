@@ -2,7 +2,123 @@ package raft
 
 import (
 	"testing"
+
+
 )
+
+func TestAppendEntries(t *testing.T) {
+	term := 5
+	log := []LogEntry{
+		{Term: 0, Command: ""},
+		{Term: 1, Command: "1"},
+		{Term: 2, Command: "2"},
+	}
+	votedFor := 0
+	id := 4
+
+	tests := []struct {
+		args  AppendEntriesArgs
+		reply AppendEntriesReply
+	}{
+		// lower term -> false
+		{
+			AppendEntriesArgs{
+				Term:     4,
+				LeaderId: 5,
+			},
+			AppendEntriesReply{
+				Term:    5,
+				Success: false,
+			},
+		},
+		// same term -> new leader w/ same log = true
+		{
+			AppendEntriesArgs{
+				Term:         5,
+				LeaderId:     5,
+				PrevLogTerm:  2,
+				PrevLogIndex: 2,
+			},
+			AppendEntriesReply{
+				Term:    5,
+				Success: true,
+			},
+		},
+		// same term -> leader w/ longer log = false
+		{
+			AppendEntriesArgs{
+				Term:         5,
+				LeaderId:     5,
+				PrevLogTerm:  3,
+				PrevLogIndex: 3,
+			},
+			AppendEntriesReply{
+				Term:    5,
+				Success: false,
+			},
+		},
+		// higher term -> leader w/ longer log = false
+		{
+			AppendEntriesArgs{
+				Term:         6,
+				LeaderId:     5,
+				PrevLogTerm:  3,
+				PrevLogIndex: 3,
+			},
+			AppendEntriesReply{
+				Term:    6,
+				Success: false,
+			},
+		},
+		// higher term -> leader w/ inconsistent log = false
+		{
+			AppendEntriesArgs{
+				Term:         6,
+				LeaderId:     5,
+				PrevLogTerm:  3,
+				PrevLogIndex: 2,
+			},
+			AppendEntriesReply{
+				Term:    6,
+				Success: false,
+			},
+		},
+		// higher term -> new leader w/ same log = true
+		{
+			AppendEntriesArgs{
+				Term:         6,
+				LeaderId:     5,
+				PrevLogTerm:  2,
+				PrevLogIndex: 2,
+			},
+			AppendEntriesReply{
+				Term:    6,
+				Success: true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		n := SetupNode(id)
+		n.Log = log
+		n.CurrentTerm = term
+		n.VotedFor = votedFor
+
+		actualReply := AppendEntriesReply{}
+		err := n.AppendEntries(&tt.args, &actualReply)
+		if err != nil {
+			t.Errorf("Error when requesting vote: %v\n", err)
+		}
+
+		if tt.reply.Term != actualReply.Term {
+			t.Errorf("Mismatching Term: expected %v, got %v\n", tt.reply.Term, actualReply.Term)
+		}
+		if tt.reply.Success != actualReply.Success {
+			t.Errorf("Mismatching Success: expected %v, got %v\n", tt.reply.Success, actualReply.Success)
+		}
+		n.Kill()
+	}
+}
 
 func TestRequestVoteOnFollower(t *testing.T) {
 	tests := []struct {
@@ -82,7 +198,7 @@ func TestRequestVoteOnFollower(t *testing.T) {
 		if tt.reply.VoteGranted != actualReply.VoteGranted {
 			t.Errorf("Mismatching Vote: expected %v, got %v\n", tt.reply.VoteGranted, actualReply.VoteGranted)
 		}
-        n.Kill()
+		n.Kill()
 	}
 }
 
@@ -155,4 +271,3 @@ func TestRequestVoteOnCandidate(t *testing.T) {
 		}
 	}
 }
-

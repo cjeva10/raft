@@ -19,7 +19,7 @@ const PULSETIME = 100
 // helper function to call RPC methods on a peer
 func (n *Node) call(peer int, rpcname string, args interface{}, reply interface{}) bool {
 	if !n.Testing {
-		peername := strconv.Itoa(peer)
+		peername := strconv.Itoa(peer+1230)
 
 		c, err := rpc.DialHTTP("tcp", "localhost:"+peername)
 		if err != nil {
@@ -127,20 +127,20 @@ func (n *Node) server(port int) {
 }
 
 func (n *Node) applyToStateMachine(entry LogEntry) {
-    fmt.Printf("%v: Applying Log to Machine: %v\n", n.Id-1230, entry)
+    fmt.Printf("%v: Applying Log to Machine: %v\n", n.Id, entry)
 
 	// todo
 	// probably we want to have a channel or queue so that the state machine
 	// requests are always processed correctly in order
 }
 
-func SetupNode(port int) *Node {
+func SetupNode(id int) *Node {
 	n := Node{}
 
 	// create peer list
-	peers := []int{1234, 1235, 1236, 1237, 1238}
+	peers := []int{4, 5, 6, 7, 8}
 	for i, peer := range peers {
-		if peer == port {
+		if peer == id {
 			copy(peers[i:], peers[i+1:])
 			peers = peers[:len(peers)-1]
 		}
@@ -169,8 +169,7 @@ func SetupNode(port int) *Node {
 	// start as a follower
 	n.State = FOLLOWER
 
-	// the id should be the port we're listening on
-	n.Id = port
+	n.Id = id
 
 	// for testing
 	n.Peers = make(map[int]*Node)
@@ -180,4 +179,55 @@ func SetupNode(port int) *Node {
 
 func (n *Node) Kill() {
 	n.Killed = true
+}
+
+func MakeLeader(n *Node) {
+	n.Log = []LogEntry{
+		{
+			Command: "",
+			Term:    0,
+		},
+		{
+			Command: "1",
+			Term:    1,
+		},
+	}
+
+	n.State = LEADER
+}
+
+func SetupTestNodes(count int) []*Node {
+	nodes := []*Node{}
+
+	if count > 5 || count <= 0 {
+		log.Fatalf("Invalid count to setup\n")
+	}
+	for i := 0; i < count; i++ {
+		nodes = append(nodes, SetupNode(4+i))
+	}
+
+    fmt.Printf("count = %v\n", count)
+    fmt.Printf("Nodes = %v\n", nodes)
+
+	for i, n := range nodes {
+        for _, n2 := range nodes[i:] {
+			if n.Id != n2.Id {
+				n.Peers[n2.Id] = n2
+			}
+		}
+	}
+
+	return nodes
+}
+
+func StartTestNodes(nodes []*Node) {
+	for _, n := range nodes {
+		go n.Start(true)
+	}
+}
+
+func KillTestNodes(nodes[]*Node) {
+    for _, n := range nodes {
+        n.Kill()
+    }
 }

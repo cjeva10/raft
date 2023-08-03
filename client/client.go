@@ -15,7 +15,7 @@ func Start(port int) bool {
 }
 
 func call(peer int, rpcname string, args interface{}, reply interface{}) bool {
-	peername := strconv.Itoa(peer)
+	peername := strconv.Itoa(peer+1230)
 
 	c, err := rpc.DialHTTP("tcp", "localhost:"+peername)
 	if err != nil {
