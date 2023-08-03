@@ -15,59 +15,65 @@ func (n *Node) callElection() {
 	n.CurrentTerm++
 	n.VotedFor = n.Id
 	n.State = CANDIDATE
+	n.LeaderId = 0
 
 	// start new election timer
-	n.Pulses++
-	go n.pulseCheck()
+	go n.resetTimer()
 
-	fmt.Printf("Calling an election: Term %v\n", n.CurrentTerm)
-
+	fmt.Printf("%v: Calling an election: Term %v\n", n.Id, n.CurrentTerm)
 	n.mu.Unlock()
 
 	// use a conditional to check vote totals later
-	cond := sync.NewCond(&n.mu)
+	mu := new(sync.Mutex)
+	cond := sync.NewCond(mu)
 
 	// request votes from all peers
 	for _, peer := range n.PeerList {
 		thisPeer := peer
 		go func() {
-			fmt.Printf("Requesting vote from %v\n", thisPeer)
-			vote := n.callRequestVote(thisPeer)
 			n.mu.Lock()
-			defer n.mu.Unlock()
-			if n.State == FOLLOWER {
-				// if we converted back to a follower cancel the election
+			if n.State != CANDIDATE {
+				n.mu.Unlock()
 				return
 			}
+			n.mu.Unlock()
 
+			fmt.Printf("%v: Requesting vote from %v\n", n.Id, thisPeer)
+			vote := n.callRequestVote(thisPeer)
+
+			mu.Lock()
+			defer mu.Unlock()
 			if vote {
-				fmt.Printf("Received vote from %v\n", thisPeer)
 				votesReceived++
+				fmt.Printf("%v: Vote from %v, votesReceived: %v\n", n.Id, thisPeer, votesReceived)
 			}
 			votesFinished++
 			cond.Broadcast()
 		}()
 	}
 
-	n.mu.Lock()
-	defer n.mu.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 	for votesReceived < votesNeeded && votesReceived <= len(n.PeerList) {
-		fmt.Printf("votes received = %v\n", votesReceived)
 		cond.Wait()
 	}
 	if votesReceived >= votesNeeded {
-		go n.leader()
+		if n.State == CANDIDATE {
+			go n.leader()
+		}
 	}
 }
 
 // if you're a candidate, you can call RequestVote to other nodes
 func (n *Node) callRequestVote(peer int) bool {
 	n.mu.Lock()
+	argsTerm := n.CurrentTerm
+	n.mu.Unlock()
+
 	args := RequestVoteArgs{
-		Term:        n.CurrentTerm,
+		Term:        argsTerm,
 		CandidateId: n.Id,
 	}
-	n.mu.Unlock()
 
 	reply := RequestVoteReply{}
 
@@ -76,21 +82,23 @@ func (n *Node) callRequestVote(peer int) bool {
 		return false
 	}
 
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
 	// another node has a higher term, therefore go back to follower
-	if reply.Term > n.CurrentTerm {
-        n.becomeFollower(reply.Term)
+	if reply.Term > argsTerm {
+		n.mu.Lock()
+		n.becomeFollower(reply.Term)
+		n.mu.Unlock()
+		return false
+	}
+
+	// stale reply
+	if reply.Term < argsTerm {
 		return false
 	}
 
 	// we received a vote
 	if reply.VoteGranted {
-		fmt.Println("We got a vote!")
 		return true
 	}
 
 	return false
 }
-

@@ -40,6 +40,7 @@ type Node struct {
     // for testing
     Testing bool
     Peers map[int]*Node
+    Killed bool
 }
 
 type LogEntry struct {

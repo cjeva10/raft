@@ -14,7 +14,7 @@ import (
 )
 
 // min heartbeat time in milliseconds
-const PULSETIME = 50 
+const PULSETIME = 100
 
 // helper function to call RPC methods on a peer
 func (n *Node) call(peer int, rpcname string, args interface{}, reply interface{}) bool {
@@ -34,20 +34,20 @@ func (n *Node) call(peer int, rpcname string, args interface{}, reply interface{
 
 		return false
 	} else {
-        return n.MockCall(peer, rpcname, args, reply)
-    }
+		return n.MockCall(peer, rpcname, args, reply)
+	}
 }
 
 // make a mock call to a test peer if we are testing
 func (n *Node) MockCall(peer int, rpcname string, args interface{}, reply interface{}) bool {
-    if !n.Testing {
-        log.Fatalf("Can only use mockCall when in testing\n")
-    }
+	if !n.Testing {
+		log.Fatalf("Can only use mockCall when in testing\n")
+	}
 
 	peerNode := n.Peers[peer]
-    if peerNode == nil {
-        return false
-    }
+	if peerNode == nil {
+		return false
+	}
 
 	switch rpcname {
 	case "Node.RequestVote":
@@ -75,32 +75,34 @@ func (n *Node) MockCall(peer int, rpcname string, args interface{}, reply interf
 
 	return true
 }
+
 // wait for a random amount of time and then request votes
 // for debugging the min wait time is 2 seconds
-func (n *Node) pulseCheck() {
-	// kill all existing pulses (by incrementing counter) and record current total
+func (n *Node) resetTimer() {
 	n.mu.Lock()
-	n.Pulses++
+    n.Pulses++
 	currPulses := n.Pulses
 	n.mu.Unlock()
 
 	// wait
-	delay := PULSETIME + rand.Intn(PULSETIME/4)
+	delay := PULSETIME + rand.Intn(2 * PULSETIME)
 	time.Sleep(time.Duration(delay) * time.Millisecond)
 
 	// if we didn't receive a pulse, call an election
 	n.mu.Lock()
-	if currPulses == n.Pulses {
-		go n.callElection() // do this on another thread to release the lock
+	if currPulses == n.Pulses && !n.Killed {
+	    n.mu.Unlock()
+		go n.callElection()
+        return
 	}
-	n.mu.Unlock()
+    n.mu.Unlock()
 }
 
 func (n *Node) becomeFollower(updateTerm int) {
 	n.CurrentTerm = updateTerm
 	n.VotedFor = 0 // reset vote whenever we update our term
 	n.State = FOLLOWER
-	go n.pulseCheck() // restart election timer
+	go n.resetTimer()
 }
 
 func (n *Node) checkLastApplied() {
@@ -125,7 +127,7 @@ func (n *Node) server(port int) {
 }
 
 func (n *Node) applyToStateMachine(entry LogEntry) {
-	fmt.Printf("Applying Log to Machine: %v\n", entry)
+    fmt.Printf("%v: Applying Log to Machine: %v\n", n.Id-1230, entry)
 
 	// todo
 	// probably we want to have a channel or queue so that the state machine
@@ -161,7 +163,7 @@ func SetupNode(port int) *Node {
 	// initialize volatile state
 	n.CommitIndex = 0
 	n.LastApplied = 0
-	n.mu = sync.Mutex{}
+	n.mu = *new(sync.Mutex)
 	n.CommitCond = *sync.NewCond(&n.mu)
 
 	// start as a follower
@@ -170,8 +172,12 @@ func SetupNode(port int) *Node {
 	// the id should be the port we're listening on
 	n.Id = port
 
-    // for testing
-    n.Peers = make(map[int]*Node)
+	// for testing
+	n.Peers = make(map[int]*Node)
 
 	return &n
+}
+
+func (n *Node) Kill() {
+	n.Killed = true
 }

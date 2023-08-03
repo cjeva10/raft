@@ -10,7 +10,8 @@ import (
 
 // become the leader
 func (n *Node) leader() {
-	fmt.Println("Becoming the leader")
+	fmt.Printf("%v: Becoming the leader\n", n.Id)
+
 	n.mu.Lock()
 	n.State = LEADER
 	n.Pulses++
@@ -24,17 +25,18 @@ func (n *Node) leader() {
 	n.mu.Unlock()
 
 	// start a thread to update the commit index
-	go n.commitCheck()
+	if !n.Killed {
+		go n.commitCheck()
+	}
 
-	for {
-        // the leader's pulse is quicker than the follower's
-		time.Sleep(PULSETIME * 3/4 * time.Millisecond)
+	for !n.Killed {
+		// the leader's pulse is quicker than the follower's
+		time.Sleep(PULSETIME / 2  * time.Millisecond)
 
+        fmt.Printf("%v: sending heartbeats\n", n.Id)
 		go n.addEntries()
 
-		n.mu.Lock()
-		fmt.Printf("Current Log: %v\n", n.Log)
-		n.mu.Unlock()
+		fmt.Printf("%v: Current Log: %v\n", n.Id, n.Log)
 	}
 }
 
@@ -48,8 +50,8 @@ func (n *Node) commitCheck() {
 		n.CommitCond.Wait()
 	}
 	n.CommitIndex = N
-    n.checkLastApplied()
-    fmt.Printf("New CommitIndex = %v\n", N)
+	n.checkLastApplied()
+	fmt.Printf("%v: New CommitIndex = %v\n", n.Id, N)
 	n.CommitCond.Broadcast()
 
 	// calling this function recursively ensures that CommitIndex increases monotonically,
@@ -57,7 +59,9 @@ func (n *Node) commitCheck() {
 	// i.e. this thread calls commitCheck, which waits for the lock
 	// this thread then returns and releases the lock, so the new thread can't do anything
 	// until this one returns
-	go n.commitCheck()
+	if !n.Killed && n.State == LEADER {
+		go n.commitCheck()
+	}
 }
 
 // we're already holding the lock when this loop is called
@@ -126,7 +130,15 @@ type LeaderAppendReply struct {
 func (n *Node) addEntries() {
 	// send AppendEntries to each of the peers
 	allArgs := []AppendEntriesArgs{}
+    if n.Killed {
+        return
+    }
+
 	n.mu.Lock()
+    // make sure that we are still the leader
+    if n.State != LEADER {
+        return
+    }
 	lastIdx := len(n.Log) - 1
 	for _, peer := range n.PeerList {
 		// if last log index >= nextIndex for a follower...
@@ -156,11 +168,13 @@ func (n *Node) addEntries() {
 
 	larch := make(chan LeaderAppendReply)
 	for i, peer := range n.PeerList {
+        fmt.Printf("%v: Calling AppendEntries to %v\n", n.Id, peer)
 		go n.callAppendEntries(peer, allArgs[i], larch)
 	}
 
 	for reply := range larch {
 		n.mu.Lock()
+        fmt.Printf("%v: AppendEntriesReply: Id %v, Term %v, Success %v\n", n.Id, reply.Peer, reply.Aer.Term, reply.Aer.Success)
 
 		// if reply term > current term, immediately become a folower and kill function
 		if reply.Aer.Term > n.CurrentTerm {
@@ -181,7 +195,6 @@ func (n *Node) addEntries() {
 			n.mu.Unlock()
 		} else {
 			// only failure case is inconsistent log -> decrement NextIndex and retry
-
 			n.NextIndex[reply.Peer]--
 			entries := n.Log[n.NextIndex[reply.Peer]:]
 			prevLogIndex := n.NextIndex[reply.Peer] - 1
@@ -198,6 +211,7 @@ func (n *Node) addEntries() {
 
 			// retry
 			n.mu.Unlock()
+            fmt.Printf("%v: Bad reply, resending to %v\n", n.Id, reply.Peer)
 			go n.callAppendEntries(reply.Peer, args, larch)
 		}
 	}
