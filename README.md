@@ -16,7 +16,7 @@ Send RPC requests to the cluster on stdin (eg `1 1234\n` sends the command `1` t
 
  - Implemented the basic leader election, tested with 5 nodes
  - Implemented appending logs
- - First draft ApepndEntries and RequestVote RPCs done
+ - First draft AppendEntries and RequestVote RPCs done
  - Simple KV store implemented as basic application
  - Mock RPC calls for testing
  - Unit tests on RPC handlers, elections, kv store, leader functions
