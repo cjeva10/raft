@@ -14,7 +14,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-    n := raft.SetupNode(port)
+	n := raft.SetupNode(port)
 	n.Start(false)
 
 	for {
