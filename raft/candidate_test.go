@@ -9,6 +9,7 @@ func TestElectLeaderFiveNodes(t *testing.T) {
 	nodes := SetupTestNodes(5)
 
 	StartTestNodes(nodes)
+	defer KillTestNodes(nodes)
 
 	// wait for more than a pulse and make sure that we have a leader
 	time.Sleep(5 * PULSETIME * time.Millisecond)
@@ -26,7 +27,4 @@ func TestElectLeaderFiveNodes(t *testing.T) {
 	if foundLeader > 1 {
 		t.Errorf("More than one leader\n")
 	}
-
-    KillTestNodes(nodes)
 }
-
