@@ -14,6 +14,12 @@ type Store struct {
 	data map[string]int
 }
 
+func New() *Store {
+	return &Store{
+        data: make(map[string]int),
+    }
+}
+
 func (s *Store) set(key string, val int) int {
 	s.data[key] = val
     return val
@@ -21,12 +27,6 @@ func (s *Store) set(key string, val int) int {
 
 func (s *Store) get(key string) int {
 	return s.data[key]
-}
-
-func New() *Store {
-	return &Store{
-        data: make(map[string]int),
-    }
 }
 
 // apply the given command to the given store
